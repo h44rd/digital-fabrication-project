@@ -12,25 +12,35 @@ var H_element = document.getElementById("H");
 var E_element = document.getElementById("E");
 
 //setup
-let headerDiv, menuDiv; 
-let serial;
-let menuPos = -100;
+var headerDiv, menuDiv; 
+var serial;
+var menuPos = -100;
 
 //model info
-let layer1Z = 0.450;
-let layerHeight = 0.5;
-let pointsPerCircle = 60;
-let circleRadius = 30;
-let modelHeight = 60;
-let bedCenterX = 110, bedCenterY = 110;
+var layer1Z = 0.450;
+var layerHeight = 0.5;
+var pointsPerCircle = 60;
+var circleRadius = 30;
+var modelHeight = 60;
+var bedCenterX = 110, bedCenterY = 110;
 
 //running display
-let canvas;
-let canvasPos = 200;
-let sendingCommands = false;
-let currentLine = "foobar";
-let latestData = "waiting for data";
+var canvas;
+var canvasPos = 200;
+var printerRunning = false;
+var sendingCommands = false;
+var currentLine = "foobar";
+var latestData = "waiting for data";
 
+//nozzel location
+var n_x, n_y, n_z = layer1Z;
+var currentRotation=0;//interger out of circleRadius
+var currRotTrigConst;// TWO_PI / pointsPerCircle
+
+var nextCommandTimemark;
+
+//remove later
+var TEMP_ConstFeedRate = 1000;//mm/min
 
 function setup() {
   //createCanvas(700, 700);
@@ -135,11 +145,11 @@ function gotError(theerror) {
 }
 
 function gotData() {
- let currentString = serial.readLine();
+ /*let currentString = serial.readLine();
   trim(currentString);
  if (!currentString) return;
  
- latestData = currentString;
+ latestData = currentString;*/
 }
 
 function openPort() {
@@ -225,12 +235,12 @@ function openPort() {
 
 function preheat(){
 	
-	layerHeight = zHeightInput.value();
-	pointsPerCircle = pointCountInput.value();
-	circleRadius = radiusInput.value();
-	modelHeight = modelHeightInput.value();
-	bedCenterX = centerXInput.value();
-	bedCenterY = centerYInput.value();
+	layerHeight = parseFloat(zHeightInput.value());
+	pointsPerCircle = parseFloat(pointCountInput.value());
+	circleRadius = parseFloat(radiusInput.value());
+	modelHeight = parseFloat(modelHeightInput.value());
+	bedCenterX = parseFloat(centerXInput.value());
+	bedCenterY = parseFloat(centerYInput.value());
 	
     headerDiv.html('Your printer is running...');
 	
@@ -254,23 +264,44 @@ function preheat(){
   canvas = createCanvas(700, 700);
   canvas.parent(menuDiv);
   canvas.position(-canvas.width/2,canvasPos);
-  sendingCommands = true;
+  printerRunning = true;
   currentLine = "Current gcode goes here...";
   
 //gcode header, ei zero axis and preheat
 
-	//stringToWrite = 'G91' + String.fromCharCode(13);
-	//serial.write(stringToWrite);
-
+	currentLine = 'G90' + String.fromCharCode(13);//absolute coordinates
+	serial.write(currentLine);
+	currentLine = 'G21' + String.fromCharCode(13);//units are mm and mm/min
+	serial.write(currentLine);
+	currentLine = 'G28' + String.fromCharCode(13);//home axis
+	serial.write(currentLine);
+	
+	//todo preheat
+	
+	currRotTrigConst = TWO_PI/pointsPerCircle;
+	
+	n_x = bedCenterX + cos(currRotTrigConst*currentRotation) * circleRadius;
+	n_y = bedCenterY + sin(currRotTrigConst*currentRotation) * circleRadius;
+	n_z = layer1Z;
+	
+	currentLine = 'G0 X' + n_x + ' Y' + n_y + ' Z' + n_z + ' F' + TEMP_ConstFeedRate + String.fromCharCode(13);//nozzle to first location
+	serial.write(currentLine);
 }
 
 function beginPrint(){
+	
+	blurp.remove();
+	startButton.remove();
 	//begin streaming commands
-	//calculate time to wait until sending next command by considering feed rate (mm/min) and distance (note that p5 has a 2d distance function)
+	sendingCommands = true;
+
+	nextCommandTimemark = millis();
+	
+	currentRotation++;
 }
 
 function draw() {
-	if(sendingCommands){
+	if(printerRunning){
 	  background(200);
 	  scaling = slider.value;
 	  fill(127);
@@ -333,6 +364,39 @@ function draw() {
 	  
 	  textSize(48);
 	  text(currentLine, 20, 60);
+	  
+	  if(sendingCommands && nextCommandTimemark <= millis()){
+				
+		let t_x = n_x, t_y = n_y;
+	
+		n_x = bedCenterX + cos(currRotTrigConst*currentRotation) * circleRadius;
+		n_y = bedCenterY + sin(currRotTrigConst*currentRotation) * circleRadius;
+		
+		let distance = dist(t_x, t_y, n_x, n_y);
+		
+		currentLine = 'G1 X' + n_x + ' Y' + n_y + String.fromCharCode(13);//todo add extrution
+		serial.write(currentLine);
+		
+		nextCommandTimemark = millis() + (distance/TEMP_ConstFeedRate)*60000;
+		currentRotation++;
+		
+		if(currentRotation >=60){
+			currentRotation = 0;
+			
+			n_z += layerHeight;
+			
+			if(n_z >= modelHeight){
+				//finished
+				
+				//end execution
+			}
+			
+			currentLine = 'G1 Z' + n_z + String.fromCharCode(13);
+			serial.write(currentLine);
+			
+			nextCommandTimemark = millis() + (layerHeight/TEMP_ConstFeedRate)*60000;
+		}
+	  }
 	}
 }
 
