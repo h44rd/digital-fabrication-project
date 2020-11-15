@@ -32,6 +32,8 @@ var sendingCommands = false;
 var currentLine = "foobar";
 var latestData = "waiting for data";
 
+var waitingOnTemperature = false;
+
 //nozzel location
 var n_x, n_y, n_z = layer1Z;
 var currentRotation=0;//interger out of circleRadius
@@ -39,8 +41,13 @@ var currRotTrigConst;// TWO_PI / pointsPerCircle
 
 var nextCommandTimemark;
 
+var NOZZLE_TEMP = 45;
+var BED_TEMP = 45;
 //remove later
 var TEMP_ConstFeedRate = 1000;//mm/min
+
+var waitingOnPosition = false;//M114
+const CLOSE_ENOUGH_POSITION = 0.5;//half a mm 
 
 function setup() {
   //createCanvas(700, 700);
@@ -145,11 +152,44 @@ function gotError(theerror) {
 }
 
 function gotData() {
- /*let currentString = serial.readLine();
-  trim(currentString);
+ let currentString = serial.readStringUntil('\n');
+ trim(currentString);
  if (!currentString) return;
  
- latestData = currentString;*/
+ latestData = currentString;
+ 
+ print(latestData);
+ 
+ if(waitingOnTemperature){
+	 
+	if(latestData.includes("T:") && latestData.includes("B:")){
+		let currentNozzleTemp = parseFloat(latestData.substr(latestData.indexOf("T:")+2));
+		let currentBedTemp = parseFloat(latestData.substr(latestData.indexOf("B:")+2));
+		if(currentNozzleTemp >= NOZZLE_TEMP && currentBedTemp >= BED_TEMP ){
+			waitingOnTemperature = false;
+			
+			print("Preheated");
+		}
+	}
+ }else if(waitingOnPosition){
+
+	if(latestData.includes("X:") && latestData.includes("Y:") && latestData.includes("Z:")){
+		let currX = parseFloat(latestData.substr(latestData.indexOf("X:")+2));
+		let currY = parseFloat(latestData.substr(latestData.indexOf("Y:")+2));
+		let currZ = parseFloat(latestData.substr(latestData.indexOf("Z:")+2));
+				
+		let v1 = createVector(n_x,n_y,n_z);
+		let v2 = createVector(currX,currY,currZ);
+				
+		if(p5.Vector.dist(v1, v2) <= CLOSE_ENOUGH_POSITION){
+			waitingOnPosition = false;
+			
+			print("Positioned");
+			beginPrint();
+		}
+	}
+ }
+ 
 }
 
 function openPort() {
@@ -249,17 +289,10 @@ function preheat(){
     menuDiv.center('horizontal'); 
     menuDiv.style('text-align', 'left');
 
-  blurp = createElement('p', 'Wait until preheated then press continue.')
+  blurp = createElement('p', 'The print will begin once you are preheated and the header is in place.')
   blurp.size(500, 20);
   blurp.parent(menuDiv);
   blurp.position(menuPos-20, 35);
-
-  startButton = createButton('Begin print!');
-  startButton.center();
-  startButton.size(100, 50);
-  startButton.position(-startButton.width/2, 100);
-  startButton.mousePressed(beginPrint);
-  startButton.parent(menuDiv);
   
   canvas = createCanvas(700, 700);
   canvas.parent(menuDiv);
@@ -267,8 +300,7 @@ function preheat(){
   printerRunning = true;
   currentLine = "Current gcode goes here...";
   
-//gcode header, ei zero axis and preheat
-
+	//zero axis
 	currentLine = 'G90' + String.fromCharCode(13);//absolute coordinates
 	serial.write(currentLine);
 	currentLine = 'G21' + String.fromCharCode(13);//units are mm and mm/min
@@ -276,28 +308,39 @@ function preheat(){
 	currentLine = 'G28' + String.fromCharCode(13);//home axis
 	serial.write(currentLine);
 	
-	//todo preheat
-	
+	//preheat
+	currentLine = 'M104 S' + NOZZLE_TEMP + ' T0' + String.fromCharCode(13);
+	serial.write(currentLine);
+	currentLine = 'M140 S' + NOZZLE_TEMP + String.fromCharCode(13);
+	serial.write(currentLine);
+		
+	//nozzle to first location
 	currRotTrigConst = TWO_PI/pointsPerCircle;
 	
 	n_x = bedCenterX + cos(currRotTrigConst*currentRotation) * circleRadius;
 	n_y = bedCenterY + sin(currRotTrigConst*currentRotation) * circleRadius;
 	n_z = layer1Z;
 	
-	currentLine = 'G0 X' + n_x + ' Y' + n_y + ' Z' + n_z + ' F' + TEMP_ConstFeedRate + String.fromCharCode(13);//nozzle to first location
-	serial.write(currentLine);
+	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + ' F' + TEMP_ConstFeedRate + String.fromCharCode(13);
+	serial.write(currentLine);	
+	
+	waitingOnTemperature = true;//tells the program to continously check temperature data
+	waitingOnPosition = true;//after the temperature is right it will check for location data...
+	
+	nextCommandTimemark = millis()+10000;
 }
 
 function beginPrint(){
 	
-	blurp.remove();
-	startButton.remove();
-	//begin streaming commands
-	sendingCommands = true;
-
-	nextCommandTimemark = millis();
+	if(sendingCommands == false){
+		blurp.remove();
+		//begin streaming commands
+		sendingCommands = true;
+	}
 	
-	currentRotation++;
+	currentRotation = 1;
+	sendCirclePrintCommand();
+	nextCommandTimemark = millis();//make it so the commands will be one ahead so head movement is smooth
 }
 
 function draw() {
@@ -365,38 +408,57 @@ function draw() {
 	  textSize(48);
 	  text(currentLine, 20, 60);
 	  
-	  if(sendingCommands && nextCommandTimemark <= millis()){
-				
-		let t_x = n_x, t_y = n_y;
-	
-		n_x = bedCenterX + cos(currRotTrigConst*currentRotation) * circleRadius;
-		n_y = bedCenterY + sin(currRotTrigConst*currentRotation) * circleRadius;
-		
-		let distance = dist(t_x, t_y, n_x, n_y);
-		
-		currentLine = 'G1 X' + n_x + ' Y' + n_y + String.fromCharCode(13);//todo add extrution
-		serial.write(currentLine);
-		
-		nextCommandTimemark = millis() + (distance/TEMP_ConstFeedRate)*60000;
-		currentRotation++;
-		
-		if(currentRotation >=60){
-			currentRotation = 0;
-			
-			n_z += layerHeight;
-			
-			if(n_z >= modelHeight){
-				//finished
-				
-				//end execution
-			}
-			
-			currentLine = 'G1 Z' + n_z + String.fromCharCode(13);
+	  if(waitingOnTemperature){
+		if(nextCommandTimemark <= millis()){
+			currentLine = 'M105' + String.fromCharCode(13);
 			serial.write(currentLine);
-			
-			nextCommandTimemark = millis() + (layerHeight/TEMP_ConstFeedRate)*60000;
+			nextCommandTimemark = millis() + 1000;
 		}
 	  }
+	  if(waitingOnPosition){
+		if(nextCommandTimemark <= millis()){
+			currentLine = 'M114' + String.fromCharCode(13);
+			serial.write(currentLine);
+			nextCommandTimemark = millis() + 1000;
+		}
+	  }
+	  else if(sendingCommands && nextCommandTimemark <= millis()){
+			sendCirclePrintCommand();
+	  }
+	}
+}
+
+function sendCirclePrintCommand(){
+	let t_x = n_x, t_y = n_y;
+	
+	n_x = bedCenterX + cos(currRotTrigConst*currentRotation) * circleRadius;
+	n_y = bedCenterY + sin(currRotTrigConst*currentRotation) * circleRadius;
+	
+	let distance = dist(t_x, t_y, n_x, n_y);
+	
+	currentLine = 'G1 X' + n_x + ' Y' + n_y + String.fromCharCode(13);//todo add extrution
+	serial.write(currentLine);
+	
+	nextCommandTimemark = millis() + (distance/TEMP_ConstFeedRate)*60000;
+	currentRotation++;
+	
+	if(currentRotation >=60){
+		currentRotation = 0;
+		
+		n_z += layerHeight;
+		
+		if(n_z >= modelHeight){
+			//finished
+			
+			//end execution
+		}
+		
+		currentLine = 'G1 Z' + n_z + String.fromCharCode(13);
+		serial.write(currentLine);
+		
+		nextCommandTimemark = millis() + (layerHeight/TEMP_ConstFeedRate)*60000 + 500;
+		
+		waitingOnPosition = true;//make it so it synchronizes every circle whereas the pritner is sure not to get too far off.
 	}
 }
 
