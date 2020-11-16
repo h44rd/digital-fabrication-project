@@ -52,10 +52,9 @@ var currRotTrigConst;// TWO_PI / pointsPerCircle
 
 var nextCommandTimemark;
 
-var NOZZLE_TEMP = 45;
-var BED_TEMP = 45;
-//remove later
-var TEMP_ConstFeedRate = 1000;//mm/min
+var NOZZLE_TEMP = 200;
+var BED_TEMP = 60;
+var ConstFeedRate = 300;//mm/min
 
 var waitingOnPosition = false;//M114
 const CLOSE_ENOUGH_POSITION = 0.5;//half a mm 
@@ -190,7 +189,7 @@ function gotData() {
 		let currX = parseFloat(latestData.substr(latestData.indexOf("X:")+2));
 		let currY = parseFloat(latestData.substr(latestData.indexOf("Y:")+2));
 		let currZ = parseFloat(latestData.substr(latestData.indexOf("Z:")+2));
-				
+
 		let v1 = createVector(n_x,n_y,n_z);
 		let v2 = createVector(currX,currY,currZ);
 				
@@ -316,6 +315,8 @@ function preheat(){
 	//zero axis
 	currentLine = 'G90' + String.fromCharCode(13);//absolute coordinates
 	serial.write(currentLine);
+	currentLine = 'M83' + String.fromCharCode(13);//realative for e only
+	serial.write(currentLine); 
 	currentLine = 'G21' + String.fromCharCode(13);//units are mm and mm/min
 	serial.write(currentLine);
 	currentLine = 'G28' + String.fromCharCode(13);//home axis
@@ -324,7 +325,7 @@ function preheat(){
 	//preheat
 	currentLine = 'M104 S' + NOZZLE_TEMP + ' T0' + String.fromCharCode(13);
 	serial.write(currentLine);
-	currentLine = 'M140 S' + NOZZLE_TEMP + String.fromCharCode(13);
+	currentLine = 'M140 S' + BED_TEMP + String.fromCharCode(13);
 	serial.write(currentLine);
 		
 	//nozzle to first location
@@ -334,7 +335,10 @@ function preheat(){
 	n_y = bedCenterY + sin(currRotTrigConst*currentRotation) * circleRadius;
 	n_z = layer1Z;
 	
-	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + ' F' + TEMP_ConstFeedRate + String.fromCharCode(13);
+	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + ' F1000' + String.fromCharCode(13);
+	serial.write(currentLine);	
+	
+	currentLine = 'G1 F' + ConstFeedRate + String.fromCharCode(13);
 	serial.write(currentLine);	
 	
 	waitingOnTemperature = true;//tells the program to continously check temperature data
@@ -409,7 +413,7 @@ function draw() {
 
 	  r = 5.0;
 	  theta = map(convolved[convolved.length - 1], 0, 0.1, theta_Start, theta_End);
-	  H = r * cos(radians(theta));
+	  H = r * cos(radians(theta)) * 0.2 - layer1Z;//this constant converts E space into H space for our print error formula
 	  E = r * sin(radians(theta)) * (nozzle_width / s_f) * l_r; 
 
     if(!isFirstSampleSet) {
@@ -464,10 +468,10 @@ function sendCirclePrintCommand(){
 	
 	let distance = dist(t_x, t_y, n_x, n_y);
 	
-	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' E' + E_Sample + String.fromCharCode(13); // TODO: Get better extrusion values
+	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + (n_z + H_Sample) + ' E' + E_Sample + String.fromCharCode(13); // TODO: Get better extrusion values
 	serial.write(currentLine);
 	
-	nextCommandTimemark = millis() + (distance/TEMP_ConstFeedRate)*60000;
+	nextCommandTimemark = millis() + (distance/ConstFeedRate)*60000;
 	currentRotation++;
 	
 	if(currentRotation >= pointsPerCircle){
@@ -476,19 +480,35 @@ function sendCirclePrintCommand(){
 		n_z += layerHeight;
 		
 		if(n_z >= modelHeight){
-      //finished
-      console.log("Model Finished");
+		  //finished
+		  console.log("Model Finished");
+	  
+			shutOff();
 			return;
 			//end execution
 		}
 		
-		currentLine = 'G1 Z' + (n_z + H_Sample) + String.fromCharCode(13);
+		currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + String.fromCharCode(13);
 		serial.write(currentLine);
 		
-		nextCommandTimemark = millis() + (layerHeight/TEMP_ConstFeedRate)*60000 + 500;
+		nextCommandTimemark = millis() + (layerHeight/ConstFeedRate)*60000 + 500;
 		
 		waitingOnPosition = true;//make it so it synchronizes every circle whereas the pritner is sure not to get too far off.
 	}
+}
+
+function shutOff(){
+	
+	currentLine = 'M104 S0' + String.fromCharCode(13);//turn off extruder
+	serial.write(currentLine);
+	currentLine = 'M140 S0' + String.fromCharCode(13);//turn off bed
+	serial.write(currentLine);
+	currentLine = 'M84 S0' + String.fromCharCode(13);//disable motors
+	serial.write(currentLine);
+	
+	sendingCommands = false;
+	printerRunning = false;
+	
 }
 
 function mousePressed() {
