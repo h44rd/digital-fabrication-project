@@ -11,6 +11,7 @@ let H_Sample = 0.0;
 let E_Sample = 0.0;
 let sampling_Timeperiod = 5000.0; // In milliseconds
 let isFirstSampleSet = false;
+let isIntervalCallbackSet = false;
 
 var intervalID;
 
@@ -72,6 +73,7 @@ function setup() {
 
   r = theta = H = E = 0;
   isFirstSampleSet = false;
+  isIntervalCallbackSet = false;
 
   nozzle_width = 0.1;
   s_f = 0.1;
@@ -491,7 +493,10 @@ function sendCirclePrintCommand(){
 
 function mousePressed() {
     userStartAudio();
-    intervalID = window.setInterval(setHE, sampling_Timeperiod);
+    if(!isIntervalCallbackSet) {
+      intervalID = window.setInterval(setHE, sampling_Timeperiod);
+      isIntervalCallbackSet = true;
+    }
 }
 
 slider.oninput = function() {
