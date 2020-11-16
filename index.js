@@ -4,6 +4,16 @@ let volume_window;
 let window_length;
 let filter_length;
 let r, theta, H, E, nozzle_width, s_f, l_r;
+let r_Constant = 5.0;
+let theta_Start = 10.0;
+let theta_End = 90.0;
+let H_Sample = 0.0;
+let E_Sample = 0.0;
+let sampling_Timeperiod = 5000.0; // In milliseconds
+let isFirstSampleSet = false;
+
+var intervalID;
+
 
 var slider = document.getElementById("myRange");
 var r_element = document.getElementById("r");
@@ -61,6 +71,7 @@ function setup() {
   mic = new p5.AudioIn();
 
   r = theta = H = E = 0;
+  isFirstSampleSet = false;
 
   nozzle_width = 0.1;
   s_f = 0.1;
@@ -394,12 +405,16 @@ function draw() {
 		rect(x, height, width / convolved.length, h);
 	  }
 
-	  r = map(convolved[convolved.length - 1], 0, 0.1, 0, 1);
-	  theta = map(convolved[convolved.length - 1], 0, 0.1, 0, 90);
+	  r = 5.0;
+	  theta = map(convolved[convolved.length - 1], 0, 0.1, theta_Start, theta_End);
 	  H = r * cos(radians(theta));
 	  E = r * sin(radians(theta)) * (nozzle_width / s_f) * l_r; 
 
-		
+    if(!isFirstSampleSet) {
+      setHE();
+      isFirstSampleSet = true;
+    }
+
 	  r_element.innerHTML = r.toString();
 	  theta_element.innerHTML = theta.toString();
 	  H_element.innerHTML = H.toString();
@@ -428,7 +443,18 @@ function draw() {
 	}
 }
 
+function setHE() {
+  isFirstSampleSet = true;
+  H_Sample = H;
+  E_Sample = E;
+  console.log("Updated H and E:", H_Sample, E_Sample);
+}
+
 function sendCirclePrintCommand(){
+  if(!isFirstSampleSet) {
+    return;
+  }
+
 	let t_x = n_x, t_y = n_y;
 	
 	n_x = bedCenterX + cos(currRotTrigConst*currentRotation) * circleRadius;
@@ -436,24 +462,25 @@ function sendCirclePrintCommand(){
 	
 	let distance = dist(t_x, t_y, n_x, n_y);
 	
-	currentLine = 'G1 X' + n_x + ' Y' + n_y + String.fromCharCode(13);//todo add extrution
+	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' E' + E_Sample + String.fromCharCode(13); // TODO: Get better extrusion values
 	serial.write(currentLine);
 	
 	nextCommandTimemark = millis() + (distance/TEMP_ConstFeedRate)*60000;
 	currentRotation++;
 	
-	if(currentRotation >=60){
+	if(currentRotation >= pointsPerCircle){
 		currentRotation = 0;
 		
 		n_z += layerHeight;
 		
 		if(n_z >= modelHeight){
-			//finished
-			
+      //finished
+      console.log("Model Finished");
+			return;
 			//end execution
 		}
 		
-		currentLine = 'G1 Z' + n_z + String.fromCharCode(13);
+		currentLine = 'G1 Z' + (n_z + H_Sample) + String.fromCharCode(13);
 		serial.write(currentLine);
 		
 		nextCommandTimemark = millis() + (layerHeight/TEMP_ConstFeedRate)*60000 + 500;
@@ -464,6 +491,7 @@ function sendCirclePrintCommand(){
 
 function mousePressed() {
     userStartAudio();
+    intervalID = window.setInterval(setHE, sampling_Timeperiod);
 }
 
 slider.oninput = function() {
