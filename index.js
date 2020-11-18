@@ -74,9 +74,14 @@ function setup() {
   isFirstSampleSet = false;
   isIntervalCallbackSet = false;
 
-  nozzle_width = 0.1;
-  s_f = 0.1;
+//TODO make this part of the UI
+  nozzle_width = 0.4;
+  s_f = 2.41;
+  
+//TODO make this approriate for each movement from point to point, lr is the distance in mm from point to point
   l_r = 0.1;
+  
+
   // start the Audio Input.
   // By default, it does not .connect() (to the computer speakers)
   mic.start();
@@ -468,6 +473,7 @@ function sendCirclePrintCommand(){
 	
 	let distance = dist(t_x, t_y, n_x, n_y);
 	
+//TODO H_sample and E sample needs to be set for each movement
 	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + (n_z + H_Sample) + ' E' + E_Sample + String.fromCharCode(13); // TODO: Get better extrusion values
 	serial.write(currentLine);
 	
