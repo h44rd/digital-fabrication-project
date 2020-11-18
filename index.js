@@ -4,7 +4,7 @@ let volume_window;
 let window_length;
 let filter_length;
 let theta, H, E, nozzle_width, s_f, l_r;
-let r_Constant = 5.0;
+let r_Constant = 7.0;
 let theta_Start = 10.0;
 let theta_End = 90.0;
 let H_Sample = 0.0;
@@ -468,11 +468,10 @@ function sendCirclePrintCommand(){
 	
 	let distance = dist(t_x, t_y, n_x, n_y);
 	
-	theta = map(average_audio, 0, 0.1, theta_Start, theta_End);
+	theta = map(average_audio, 0, 0.5, theta_Start, theta_End, true);
 	H = r_Constant * cos(radians(theta)) * 0.2 - layer1Z;//this constant converts E space into H space for our print error formula
 	E = r_Constant * sin(radians(theta)) * (nozzle_width / s_f) * distance; 
 	
-//TODO H_sample and E sample needs to be set for each movement
 	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + (n_z + H) + ' E' + E + String.fromCharCode(13); // TODO: Get better extrusion values
 	serial.write(currentLine);
 	
