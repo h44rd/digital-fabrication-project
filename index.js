@@ -3,7 +3,7 @@ let mic;
 let volume_window;
 let window_length;
 let filter_length;
-let r, theta, H, E, nozzle_width, s_f, l_r;
+let theta, H, E, nozzle_width, s_f, l_r;
 let r_Constant = 5.0;
 let theta_Start = 10.0;
 let theta_End = 90.0;
@@ -59,11 +59,13 @@ var ConstFeedRate = 300;//mm/min
 var waitingOnPosition = false;//M114
 const CLOSE_ENOUGH_POSITION = 0.5;//half a mm 
 
+var average_audio = 0;
+
 function setup() {
   //createCanvas(700, 700);
 
-  window_length = 100;
-  filter_length = 10;
+  window_length = 1000;
+  filter_length = window_length;
   volume_window = new Queue();
   volume_window.enqueue(0);
 
@@ -81,7 +83,6 @@ function setup() {
 //TODO make this approriate for each movement from point to point, lr is the distance in mm from point to point
   l_r = 0.1;
   
-
   // start the Audio Input.
   // By default, it does not .connect() (to the computer speakers)
   mic.start();
@@ -388,17 +389,16 @@ function draw() {
 	  var convolved = []
 
 	  var volume_window_list = volume_window.list();
-	  for(let i = 0; i < volume_window_list.length; i++) {
-		let sum = 0.0;
-		let count = 0;
-		for(let j = -1 * filter_length / 2; j < filter_length / 2; j++) {
-		  if(j >= 0 && j < volume_window_list.length) {
-			sum += volume_window_list[i];
+	  let i = volume_window_list.length/2;
+	  let sum = 0.0;
+	  let count = 0;
+	  for(let j = -1 * filter_length / 2; j < filter_length / 2; j++) {
+	    if(i+j >= 0 && i+j < volume_window_list.length) {
+			sum += volume_window_list[i+j];
 			count += 1;
-		  }
 		}
-		convolved.push(sum/count);
 	  }
+	  average_audio = sum/count;
 
 	  var window_list = volume_window.list();
 	  for(let i =0; i < window_list.length; i++){
@@ -409,17 +409,12 @@ function draw() {
 		ellipse(x, y, 7);
 	  }
 
-	  for (let i = 0; i < convolved.length; i++) {
+	  /*for (let i = 0; i < convolved.length; i++) {
 		let x = map(i, 0, convolved.length, 0, width);
 		let h = -height + map(convolved[i], 0, 0.05, height, 0);
 		// console.log(convolved);
 		rect(x, height, width / convolved.length, h);
-	  }
-
-	  r = 5.0;
-	  theta = map(convolved[convolved.length - 1], 0, 0.1, theta_Start, theta_End);
-	  H = r * cos(radians(theta)) * 0.2 - layer1Z;//this constant converts E space into H space for our print error formula
-	  E = r * sin(radians(theta)) * (nozzle_width / s_f) * l_r; 
+	  }*/
 
     if(!isFirstSampleSet) {
       setHE();
@@ -473,8 +468,12 @@ function sendCirclePrintCommand(){
 	
 	let distance = dist(t_x, t_y, n_x, n_y);
 	
+	theta = map(average_audio, 0, 0.1, theta_Start, theta_End);
+	H = r_Constant * cos(radians(theta)) * 0.2 - layer1Z;//this constant converts E space into H space for our print error formula
+	E = r_Constant * sin(radians(theta)) * (nozzle_width / s_f) * distance; 
+	
 //TODO H_sample and E sample needs to be set for each movement
-	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + (n_z + H_Sample) + ' E' + E_Sample + String.fromCharCode(13); // TODO: Get better extrusion values
+	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + (n_z + H) + ' E' + E + String.fromCharCode(13); // TODO: Get better extrusion values
 	serial.write(currentLine);
 	
 	nextCommandTimemark = millis() + (distance/ConstFeedRate)*60000;
