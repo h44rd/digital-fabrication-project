@@ -61,6 +61,17 @@ const CLOSE_ENOUGH_POSITION = 0.5;//half a mm
 
 var average_audio = 0;
 
+// ::::::::::::::::::::: XY Noise Implementation :::::::::::::::::::::: //
+
+var C_X, C_Y;
+var C_RAIDUS;
+var C_TOTAL_SEGMENTS;
+var current_segment;
+var points_circle = [];
+var noise_range;
+
+// :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: //
+
 function setup() {
   //createCanvas(700, 700);
 
@@ -82,6 +93,11 @@ function setup() {
   
 //TODO make this approriate for each movement from point to point, lr is the distance in mm from point to point
   l_r = 0.1;
+  
+  // This functions puts the points into the array "points_circle"
+  createDefaultCircle(bedCenterX, bedCenterY, circleRadius, pointsPerCircle);
+  current_segment = 0;
+  noise_range = 10.0 * (1.0 / pointsPerCircle) 
   
   // start the Audio Input.
   // By default, it does not .connect() (to the computer speakers)
@@ -362,7 +378,8 @@ function beginPrint(){
 		sendingCommands = true;
 	}
 	
-	currentRotation = 1;
+  currentRotation = 1;
+  current_segment = 0;
 	sendCirclePrintCommand();
 	nextCommandTimemark = millis();//make it so the commands will be one ahead so head movement is smooth
 }
@@ -450,11 +467,28 @@ function draw() {
 	}
 }
 
+// ::::::::::::::::::::: XY Noise Implementation :::::::::::::::::::::: //
+
+// Creates circle array of points starting from top and in clockwise order
+function createDefaultCircle(c_x, c_y, c_radius, c_total_segments) {
+  var d_theta = 2.0 * Math.PI / c_total_segments;
+  for(var i = 0; i < c_total_segments; i++) {
+    let x = (c_radius * cos(i * d_theta)) + c_x;
+    let y = (c_radius * sin(i * d_theta)) + c_y;
+    points_circle.push([x, y]);
+  }
+}
+
+// :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: //
+
+
+
 function setHE() {
   isFirstSampleSet = true;
   H_Sample = H;
   E_Sample = E;
-  console.log("Updated H and E:", H_Sample, E_Sample);
+  console.log("Updated H and E:", H, E);
+  console.log(points_circle);
 }
 
 function sendCirclePrintCommand(){
@@ -463,9 +497,15 @@ function sendCirclePrintCommand(){
   }
 
 	let t_x = n_x, t_y = n_y;
-	
-	n_x = bedCenterX + cos(currRotTrigConst*currentRotation) * circleRadius;
-	n_y = bedCenterY + sin(currRotTrigConst*currentRotation) * circleRadius;
+  
+  n_x = points_circle[current_segment][0] + noise_range * map(average_audio, 0, 0.5, -1.0, 1.0);
+  n_y = points_circle[current_segment][1] + noise_range * map(average_audio, 0, 0.5, -1.0, 1.0);
+
+  points_circle[current_segment][0] = n_x;
+  points_circle[current_segment][1] = n_y;
+
+	// n_x = bedCenterX + cos(currRotTrigConst*currentRotation) * circleRadius;
+	// n_y = bedCenterY + sin(currRotTrigConst*currentRotation) * circleRadius;
 	
 	let distance = dist(t_x, t_y, n_x, n_y);
 	
@@ -473,19 +513,16 @@ function sendCirclePrintCommand(){
 	H = r_Constant * cos(radians(theta)) * 0.2 - layer1Z;//this constant converts E space into H space for our print error formula
 	E = r_Constant * sin(radians(theta)) * (nozzle_width / s_f) * distance; 
 	
-	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + (n_z + H) + ' E' + E + String.fromCharCode(13); // TODO: Get better extrusion values
-	//currentLine = 'G3 X' + n_x + ' Y' + n_y + ' Z' + n_z + ' I' + bedCenterX + ' J' + bedCenterY + ' E' + (0.2*distance) + String.fromCharCode(13); // TODO: Get better extrusion values
-	print(currentLine);
-	
-	
+	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + ' E' + E + String.fromCharCode(13); // TODO: Get better extrusion values
+
 	serial.write(currentLine);
 	
 	nextCommandTimemark = millis() + (distance/ConstFeedRate)*60000;
 	currentRotation++;
-	
+	current_segment++;
 	if(currentRotation >= pointsPerCircle){
 		currentRotation = 0;
-		
+		current_segment = 0;
 		n_z += layerHeight;
 		
 		if(n_z >= modelHeight){
