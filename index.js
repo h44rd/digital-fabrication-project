@@ -30,7 +30,7 @@ var menuPos = -100;
 //model info
 var layer1Z = 0.450;
 var layerHeight = 0.5;
-var pointsPerCircle = 60;
+var pointsPerCircle = 300;
 var circleRadius = 30;
 var modelHeight = 60;
 var bedCenterX = 110, bedCenterY = 110;
@@ -52,8 +52,8 @@ var currRotTrigConst;// TWO_PI / pointsPerCircle
 
 var nextCommandTimemark;
 
-var NOZZLE_TEMP = 200;
-var BED_TEMP = 60;
+var NOZZLE_TEMP = 190;
+var BED_TEMP = 50;
 var ConstFeedRate = 300;//mm/min
 
 var waitingOnPosition = false;//M114
@@ -309,7 +309,8 @@ function openPort() {
 
 function preheat(){
 	
-	layerHeight = parseFloat(zHeightInput.value());
+	layer1Z = parseFloat(zHeightInput.value());
+	layerHeight = parseFloat(layerHeightInput.value());
 	pointsPerCircle = parseFloat(pointCountInput.value());
 	circleRadius = parseFloat(radiusInput.value());
 	modelHeight = parseFloat(modelHeightInput.value());
@@ -513,6 +514,7 @@ function sendCirclePrintCommand(){
 	E = r_Constant * sin(radians(theta)) * (nozzle_width / s_f) * distance; 
 	
 	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + ' E' + E + String.fromCharCode(13); // TODO: Get better extrusion values
+
 	serial.write(currentLine);
 	
 	nextCommandTimemark = millis() + (distance/ConstFeedRate)*60000;
@@ -533,6 +535,9 @@ function sendCirclePrintCommand(){
 		}
 		
 		currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + String.fromCharCode(13);
+		
+		//currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + String.fromCharCode(13);
+		
 		serial.write(currentLine);
 		
 		nextCommandTimemark = millis() + (layerHeight/ConstFeedRate)*60000 + 500;
