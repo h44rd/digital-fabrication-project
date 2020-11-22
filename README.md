@@ -1,5 +1,8 @@
 # Sani Inc. Project Documentation
 
+Nozzle temperature: 200 
+Bed temperature: 60
+
 ### Iteration 0
 
 TODO: Add pictures of the failed print.
@@ -32,3 +35,18 @@ A cylinder with no noise
 The nozzle hit the bed
 Error:
 The mapping of H and E was wrong. (cosine becoming negative -> H was becoming negative, `map` function was not clamping if the value went out of bounds.)
+
+### Iteration 3
+#### Trying constant values for E and H
+* E: 0.8
+* Z: 2 
+* TODO: Add pictures
+
+* E: 0.2
+* Z: 2
+* Zig-zag and coil noise found
+
+* E: 0.2
+* Z: 1
+* Entire model completed 
+* TODO: Add picture
