@@ -496,10 +496,14 @@ function sendCirclePrintCommand(){
     return;
   }
 
-	let t_x = n_x, t_y = n_y;
+  let t_x = n_x, t_y = n_y;
   
-  n_x = points_circle[current_segment][0] + noise_range * map(average_audio, 0, 0.5, -1.0, 1.0);
-  n_y = points_circle[current_segment][1] + noise_range * map(average_audio, 0, 0.5, -1.0, 1.0);
+  let v1 = createVector(n_x - bedCenterX, n_y - bedCenterY);
+  v1.normalize();
+
+  
+  n_x = points_circle[current_segment][0] + v1.x * (noise_range * map(average_audio, 0, 0.5, -1.0, 1.0));
+  n_y = points_circle[current_segment][1] + v1.y * (noise_range * map(average_audio, 0, 0.5, -1.0, 1.0));
 
   points_circle[current_segment][0] = n_x;
   points_circle[current_segment][1] = n_y;
