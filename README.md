@@ -50,3 +50,18 @@ The mapping of H and E was wrong. (cosine becoming negative -> H was becoming ne
 * Z: 1
 * Entire model completed 
 * TODO: Add picture
+
+### Iteration 4
+#### Tried adding noise to the XY position (substitute to printing the error)
+* Noise range: 2 mm 
+* Points per circle: 300
+
+#### Reducing the points per circle
+* Noise range: 2 mm
+* Points per circle: 10
+
+
+### Future ideas
+* To consider the previous point as well as the point below.
+* Changing extrusion amount based on audio noise and see if it gives good results
+* Need to find a good mapping parameters from audio noise to 3D print noise
