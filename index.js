@@ -8,11 +8,11 @@ var serial;
 var menuPos = -100;
 
 //model info
-var layer1Z = 3.5;//0.450;
-var layerHeight = 0.65;
+var layer1Z = 1.2;//0.450;
+var layerHeight = 0.85;
 var pointsPerCircle = 60;
-var circleRadius = 30;
-var modelHeight = 360;
+var circleRadius = 12.5;
+var modelHeight = 200;
 var bedCenterX = 110, bedCenterY = 110;
 
 //running display
@@ -37,13 +37,22 @@ var BED_TEMP = 50;
 var ConstFeedRate = 300;//mm/min
 
 var waitingOnPosition = false;//if true this program will regularly send 'M114' to the printer to report position until its position matches what it expects
-var CLOSE_ENOUGH_POSITION = 0.5;//half a mm 
+var CLOSE_ENOUGH_POSITION = 2;//2 mm 
 
 //Extrusion per mm by mic Implmentation
-var minExtrusionPerMM = 0.1;
-var maxExtrusionPerMM = 1.2;
+var minExtrusionPerMM = 0.05;
+var maxExtrusionPerMM = 1.35;
 var runningMicSampleTotal=0.0;
 var runningMicSampleCount=0.0;
+
+var minRadiusScaleFactor=0.825;
+var maxRadiusScaleFactor=1.175;
+
+var recentAverages;
+
+var layersPerOscilation = 8;
+
+//todo, add scaling from the previous work
 
 function setup() {
 
@@ -74,7 +83,9 @@ function setup() {
   serial.on('error', gotError);
   serial.on('open', gotOpen);
   serial.on('close', gotClose);
- 
+  
+  recentAverages = new QueueCapped();
+  recentAverages.enqueue(0);
 }
 
 
@@ -151,7 +162,7 @@ function gotData() {
 		if(currentNozzleTemp >= NOZZLE_TEMP && currentBedTemp >= BED_TEMP ){
 			waitingOnTemperature = false;
 			
-			print("Preheated");
+			//print("Preheated");
 		}
 	}
  }else if(waitingOnPosition){
@@ -167,7 +178,7 @@ function gotData() {
 		if(p5.Vector.dist(v1, v2) <= CLOSE_ENOUGH_POSITION){
 			waitingOnPosition = false;
 			
-			print("Positioned");
+			//print("Positioned");
 			beginCircle();
 		}
 	}
@@ -350,8 +361,10 @@ function draw() {
 	  runningMicSampleCount += 1;
 	  
 	  //draw rectangles showing the running average and current mic sample
-	  rect(width/3, height, 25, -map(micVolFixed, 0, 1, 0, height));
-	  rect(2*width/3, height, 25, -map(runningMicSampleTotal/runningMicSampleCount, 0, 1, 0, height));
+	  rect(width/4, height, 25, -map(micVolFixed, 0, 1, 0, height));
+	  rect(width/2, height, 25, -map(runningMicSampleTotal/runningMicSampleCount, 0, 1, 0, height));
+	  rect(3*width/4, height, 25, -map(recentAverages.average(), 0, 1, 0, height));
+
 	  
 	  textSize(12);
 	  text(currentLine, 20, 60);
@@ -369,7 +382,7 @@ function draw() {
 		if(nextCommandTimemark <= millis()){
 			currentLine = 'M114' + String.fromCharCode(13);
 			serial.write(currentLine);
-			nextCommandTimemark = millis() + 1000;
+			nextCommandTimemark = millis();// + 100;
 		}
 	  }
 	  else if(sendingCommands && nextCommandTimemark <= millis()){
@@ -379,53 +392,66 @@ function draw() {
 }
 
 function sendCirclePrintCommand(){
+	
+	let E = 0;
+	let thisSampleAverage = 0;
+
+	if(runningMicSampleCount !=0)
+		thisSampleAverage = (runningMicSampleTotal/runningMicSampleCount);
+		//note: (runningMicSampleTotal/runningMicSampleCount) is between 0 and 1	
+	
+	recentAverages.enqueue(thisSampleAverage);
+	
+	n_z += layerHeight/pointsPerCircle;
+	n_z = round(n_z,5);
 
 	let t_x = n_x, t_y = n_y;
+	
+	let currRad = currRotTrigConst*currentRotation;
+	let scaleRotHelper = map((recentAverages.average() - thisSampleAverage)/recentAverages.variance(), 1, -1, cos(currRad - (n_z/(layerHeight*layersPerOscilation))*pointsPerCircle*currRotTrigConst), 0, true);
+	//arbitartily defined method of determining varying the radius
 
-	n_x = bedCenterX + cos(currRotTrigConst*currentRotation) * circleRadius;
-	n_y = bedCenterY + sin(currRotTrigConst*currentRotation) * circleRadius;
+	let xScale = map(scaleRotHelper, -1, 1, minRadiusScaleFactor, maxRadiusScaleFactor, true);
+	let yScale = map(scaleRotHelper, -1, 1, maxRadiusScaleFactor, minRadiusScaleFactor, true);
+
+	n_x = round(bedCenterX + cos(currRad) * circleRadius * xScale, 5);
+	n_y = round(bedCenterY + sin(currRad) * circleRadius * yScale, 5);
 	
 	let distance = dist(t_x, t_y, n_x, n_y);
 	
-	if(runningMicSampleCount !=0){
-		
-		print("mic sample average: " +runningMicSampleTotal/runningMicSampleCount);
-		
-		E = distance * map((runningMicSampleTotal/runningMicSampleCount), 0, 1, minExtrusionPerMM, maxExtrusionPerMM);
-		//note: (runningMicSampleTotal/runningMicSampleCount) is between 0 and 1	
-	}
-	else E=0;
+	if(runningMicSampleCount != 0)
+		E = round(distance * map(thisSampleAverage, 0, 1, minExtrusionPerMM, maxExtrusionPerMM), 5);
 	
 	runningMicSampleTotal = runningMicSampleCount = 0;
 	
-	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + ' E' + E + String.fromCharCode(13); // TODO: Get better extrusion values
+	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + ' E' + E + String.fromCharCode(13);
 
 	serial.write(currentLine);
-	//print(currentLine);
+	print(currentLine);
 	
 	nextCommandTimemark = millis() + (distance/ConstFeedRate)*60000;
 	currentRotation++;
 	
 	if(currentRotation >= pointsPerCircle){
 		currentRotation = 0;
-		n_z += layerHeight;
-		
-		if(n_z >= modelHeight){
-		  //finished
-		  console.log("Model Finished");
-	  
-			shutOff();
-			return;
-			//end execution
-		}
+		//n_z += layerHeight;
 		
 		currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + String.fromCharCode(13);
 				
 		serial.write(currentLine);
 		
-		nextCommandTimemark = millis() + (layerHeight/ConstFeedRate)*60000 + 500;
+		nextCommandTimemark = millis() + (layerHeight/ConstFeedRate)*60000;
 		
 		waitingOnPosition = true;//make it so it synchronizes every circle whereas the pritner is sure not to get too far off.
+	}
+	
+	if(n_z >= modelHeight){
+	  //finished
+	  console.log("Model Finished");
+  
+		shutOff();
+		return;
+		//end execution
 	}
 }
 
@@ -445,4 +471,76 @@ function shutOff(){
 
 function mousePressed() {
     userStartAudio();
+}
+
+function QueueCapped() {
+  this.qList = [];
+  this.head = -1;
+  this.tail = -1;
+  this.capacity = 30;
+  
+  this.enqueue = function(item) {
+    if (this.head == -1) {
+      this.head++;
+    }
+    this.tail++;
+    this.qList.push(item);
+	
+	if(this.capacity < this.qList.length) this.dequeue();
+  };
+  
+  this.dequeue = function() {
+    if (this.head == -1) {
+      console.log("Queue underflow!");
+    } else if (this.head == this.tail) {
+      const p = this.qList.splice(0, 1);
+      this.head--;
+      this.tail--;
+      return p;
+    } else {
+      this.tail--;
+      return this.qList.splice(0, 1);
+    }
+  };
+  
+  this.size = function() {
+    return this.qList.length;
+  };
+  
+  this.peek = function() {
+    if (this.head == -1) {
+      console.log("Queue is empty!");
+    } else {
+      return this.qList[this.head];
+    }
+  };
+  
+  this.list = function() {
+    return this.qList;
+  };
+  
+  this.average = function() {
+	if(this.size == 0) return 0;
+	
+	let result = 0;
+	for(let i =0; i < this.qList.length; i++){
+		result += this.qList[i];
+	}
+	
+	return result / this.qList.length;
+	
+  }
+  
+  this.variance = function() {
+	if(this.size == 0) return 0;
+	
+	let result = 0;
+	let average = this.average();
+	for(let i =0; i < this.qList.length; i++){
+		result += pow((this.qList[i] - average), 2);
+	}
+	
+	return result / this.qList.length;
+	
+  }
 }
