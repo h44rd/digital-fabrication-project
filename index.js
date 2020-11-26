@@ -1,26 +1,8 @@
 //mic input control
-let mic;
-let volume_window;
-let window_length;
-let filter_length;
-let theta, H, E, nozzle_width, s_f, l_r;
-let r_Constant = 7.0;
-let theta_Start = 10.0;
-let theta_End = 90.0;
-let H_Sample = 0.0;
-let E_Sample = 0.0;
-let sampling_Timeperiod = 5000.0; // In milliseconds
-let isFirstSampleSet = false;
-let isIntervalCallbackSet = false;
+var mic;
 
-var intervalID;
-
-
-var slider = document.getElementById("myRange");
-var r_element = document.getElementById("r");
-var theta_element = document.getElementById("theta");
-var H_element = document.getElementById("H");
-var E_element = document.getElementById("E");
+//*mutatable by user
+var micMaxVolRemap=0.35;//normaly the mic charts volume from 0 to 1.0, but it rarely gets even close to that so we should give it more range by boosting
 
 //setup
 var headerDiv, menuDiv; 
@@ -28,11 +10,16 @@ var serial;
 var menuPos = -100;
 
 //model info
-var layer1Z = 0.450;
-var layerHeight = 0.5;
-var pointsPerCircle = 10;
-var circleRadius = 30;
-var modelHeight = 60;
+
+//*not sure
+var layer1Z = 1.0;
+var layerHeight = 0.85;
+
+var pointsPerCircle = 60;
+var circleRadius = 12.5;
+
+//*mutatable by user
+var modelHeight = 120;
 var bedCenterX = 110, bedCenterY = 110;
 
 //running display
@@ -56,75 +43,56 @@ var NOZZLE_TEMP = 190;
 var BED_TEMP = 50;
 var ConstFeedRate = 300;//mm/min
 
-var waitingOnPosition = false;//M114
-const CLOSE_ENOUGH_POSITION = 0.5;//half a mm 
+var waitingOnPosition = false;//if true this program will regularly send 'M114' to the printer to report position until its position matches what it expects
+var CLOSE_ENOUGH_POSITION = 2;//2 mm 
 
-var average_audio = 0;
+//Extrusion per mm by mic Implmentation
+var minExtrusionPerMM = 0.05;
+var maxExtrusionPerMM = 1.35;
 
-// ::::::::::::::::::::: XY Noise Implementation :::::::::::::::::::::: //
+var minRadiusScaleFactor=0.825;
+var maxRadiusScaleFactor=1.175;
 
-var C_X, C_Y;
-var C_RAIDUS;
-var C_TOTAL_SEGMENTS;
-var current_segment;
-var points_circle = [];
-var noise_range;
+var runningMicSampleTotal=0.0;
+var runningMicSampleCount=0.0;
+var recentAverages;
 
-// :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: //
+var layersPerOscilation = 12;
+
+//todo, add scaling from the previous work
 
 function setup() {
-  //createCanvas(700, 700);
-
-  window_length = 1000;
-  filter_length = window_length;
-  volume_window = new Queue();
-  volume_window.enqueue(0);
 
   // Create an Audio input
   mic = new p5.AudioIn();
 
-  r = theta = H = E = 0;
-  isFirstSampleSet = false;
-  isIntervalCallbackSet = false;
-
-//TODO make this part of the UI
-  nozzle_width = 0.4;
-  s_f = 2.41;
-  
-//TODO make this approriate for each movement from point to point, lr is the distance in mm from point to point
-  l_r = 0.1;
-  
-  // This functions puts the points into the array "points_circle"
-  createDefaultCircle(bedCenterX, bedCenterY, circleRadius, pointsPerCircle);
-  current_segment = 0;
-  noise_range = 20 / pointsPerCircle;
-  
   // start the Audio Input.
   // By default, it does not .connect() (to the computer speakers)
   mic.start();
-  d = new Date();
   
- //serial
- headerDiv = createDiv('Connect to 3D printer!').size(300); 
- headerDiv.center('horizontal'); 
- headerDiv.style('font-size', '24px'); 
- headerDiv.style('text-align', 'center'); 
+  //serial
+  headerDiv = createDiv('Connect to 3D printer!').size(300); 
+  headerDiv.center('horizontal'); 
+  headerDiv.style('font-size', '24px'); 
+  headerDiv.style('text-align', 'center'); 
  
- menuDiv = createDiv(''); 
- menuDiv.center('horizontal');
- menuDiv.style('text-align', 'left'); 
+  menuDiv = createDiv(''); 
+  menuDiv.center('horizontal');
+  menuDiv.style('text-align', 'left'); 
 
- serial = new p5.SerialPort();
+  serial = new p5.SerialPort();
 
- serial.list();
+  serial.list();
 
- serial.on('connected', serverConnected);
- serial.on('list', gotList);
- serial.on('data', gotData);
- serial.on('error', gotError);
- serial.on('open', gotOpen);
- serial.on('close', gotClose);
- 
+  serial.on('connected', serverConnected);
+  serial.on('list', gotList);
+  serial.on('data', gotData);
+  serial.on('error', gotError);
+  serial.on('open', gotOpen);
+  serial.on('close', gotClose);
+  
+  recentAverages = new QueueCapped();
+  recentAverages.enqueue(0);
 }
 
 
@@ -151,7 +119,6 @@ function gotList(thelist) {
     thisOption = createElement('option', thelist[i]);
     thisOption.value = thelist[i];
     portListDropDown.child(thisOption);
-    //print(i + " " + thelist[i]);
   }
   
   //port baud rate entry field
@@ -192,7 +159,7 @@ function gotData() {
  
  latestData = currentString;
  
- print(latestData);
+ //print(latestData);
  
  if(waitingOnTemperature){
 	 
@@ -202,7 +169,7 @@ function gotData() {
 		if(currentNozzleTemp >= NOZZLE_TEMP && currentBedTemp >= BED_TEMP ){
 			waitingOnTemperature = false;
 			
-			print("Preheated");
+			//print("Preheated");
 		}
 	}
  }else if(waitingOnPosition){
@@ -218,7 +185,7 @@ function gotData() {
 		if(p5.Vector.dist(v1, v2) <= CLOSE_ENOUGH_POSITION){
 			waitingOnPosition = false;
 			
-			print("Positioned");
+			//print("Positioned");
 			beginCircle();
 		}
 	}
@@ -324,16 +291,16 @@ function preheat(){
     menuDiv.center('horizontal'); 
     menuDiv.style('text-align', 'left');
 
-  blurp = createElement('p', 'The print will begin once you are preheated and the header is in place.')
-  blurp.size(500, 20);
-  blurp.parent(menuDiv);
-  blurp.position(menuPos-20, 35);
+    blurp = createElement('p', 'The print will begin once you are preheated and the header is in place.')
+    blurp.size(500, 20);
+    blurp.parent(menuDiv);
+    blurp.position(menuPos-20, 35);
   
-  canvas = createCanvas(700, 700);
-  canvas.parent(menuDiv);
-  canvas.position(-canvas.width/2,canvasPos);
-  printerRunning = true;
-  currentLine = "Current gcode goes here...";
+    canvas = createCanvas(700, 700);
+    canvas.parent(menuDiv);
+    canvas.position(-canvas.width/2,canvasPos);
+    printerRunning = true;
+    currentLine = "Current gcode goes here...";
   
 	//zero axis
 	currentLine = 'G90' + String.fromCharCode(13);//absolute coordinates
@@ -343,6 +310,9 @@ function preheat(){
 	currentLine = 'G21' + String.fromCharCode(13);//units are mm and mm/min
 	serial.write(currentLine);
 	currentLine = 'G28' + String.fromCharCode(13);//home axis
+	serial.write(currentLine);
+	
+	currentLine = 'G1 Z'+ (layer1Z*2) + String.fromCharCode(13);
 	serial.write(currentLine);
 	
 	//preheat
@@ -379,72 +349,31 @@ function beginCircle(){
 	}
 	
     currentRotation = 0;
-    current_segment = 0;
+
 	sendCirclePrintCommand();
-	nextCommandTimemark = millis();//make it so the commands will be one ahead so head movement is smooth
+	nextCommandTimemark = millis();
+	//sending a print command and then immediately allowing another makes it so the commands will be one ahead which eneables the head movement to be smooth
 }
 
 function draw() {
 	if(printerRunning){
 	  background(200);
-	  scaling = slider.value;
+
 	  fill(127);
 	  stroke(0);
 
-	  var sum_window = 0;
-	  var window_list = volume_window.list();
-	  // // Get average
-	  // for(let i = 0; i < window_list.length - 1; i++) {
-	  //   sum_window += window_list[i];
-	  // }
-	  // sum_window += mic.getLevel();
-	  // let avg_window = sum_window / volume_window.size();
-	  // 1 1 1 1.2 1 1 1 1 1 
-	  volume_window.enqueue(mic.getLevel());
-	  if(volume_window.size() > window_length) {
-		volume_window.dequeue();
-	  }
-	  var convolved = []
+	  let micVolFixed = map(mic.getLevel(), 0, micMaxVolRemap, 0, 1, true);
 
-	  var volume_window_list = volume_window.list();
-	  let i = volume_window_list.length/2;
-	  let sum = 0.0;
-	  let count = 0;
-	  for(let j = -1 * filter_length / 2; j < filter_length / 2; j++) {
-	    if(i+j >= 0 && i+j < volume_window_list.length) {
-			sum += volume_window_list[i+j];
-			count += 1;
-		}
-	  }
-	  average_audio = sum/count;
-
-	  var window_list = volume_window.list();
-	  for(let i =0; i < window_list.length; i++){
-		let x = i * (width / (window_list.length-1));
-		// let y = map(window_list[i], 0, 1, 0, sum_window);
-		y = window_list[i] * 10000;
-		// console.log(window_list);
-		ellipse(x, y, 7);
-	  }
-
-	  /*for (let i = 0; i < convolved.length; i++) {
-		let x = map(i, 0, convolved.length, 0, width);
-		let h = -height + map(convolved[i], 0, 0.05, height, 0);
-		// console.log(convolved);
-		rect(x, height, width / convolved.length, h);
-	  }*/
-
-    if(!isFirstSampleSet) {
-      setHE();
-      isFirstSampleSet = true;
-    }
-
-	  r_element.innerHTML = r.toString();
-	  theta_element.innerHTML = theta.toString();
-	  H_element.innerHTML = H.toString();
-	  E_element.innerHTML = E.toString();
+	  runningMicSampleTotal += micVolFixed;
+	  runningMicSampleCount += 1;
 	  
-	  textSize(48);
+	  //draw rectangles showing the running average and current mic sample
+	  rect(width/4, height, 25, -map(micVolFixed, 0, 1, 0, height));
+	  rect(width/2, height, 25, -map(runningMicSampleTotal/runningMicSampleCount, 0, 1, 0, height));
+	  rect(3*width/4, height, 25, -map(recentAverages.average(), 0, 1, 0, height));
+
+	  
+	  textSize(12);
 	  text(currentLine, 20, 60);
 	  
 	  if(waitingOnTemperature){
@@ -452,13 +381,15 @@ function draw() {
 			currentLine = 'M105' + String.fromCharCode(13);
 			serial.write(currentLine);
 			nextCommandTimemark = millis() + 1000;
+			
+			runningMicSampleTotal = runningMicSampleCount = 0;
 		}
 	  }
 	  if(waitingOnPosition){
 		if(nextCommandTimemark <= millis()){
 			currentLine = 'M114' + String.fromCharCode(13);
 			serial.write(currentLine);
-			nextCommandTimemark = millis() + 1000;
+			nextCommandTimemark = millis();// + 100;
 		}
 	  }
 	  else if(sendingCommands && nextCommandTimemark <= millis()){
@@ -467,86 +398,67 @@ function draw() {
 	}
 }
 
-// ::::::::::::::::::::: XY Noise Implementation :::::::::::::::::::::: //
-
-// Creates circle array of points starting from top and in clockwise order
-function createDefaultCircle(c_x, c_y, c_radius, c_total_segments) {
-  var d_theta = 2.0 * Math.PI / c_total_segments;
-  for(var i = 0; i < c_total_segments; i++) {
-    let x = (c_radius * cos(i * d_theta)) + c_x;
-    let y = (c_radius * sin(i * d_theta)) + c_y;
-    points_circle.push([x, y]);
-  }
-}
-
-// :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: //
-
-
-
-function setHE() {
-  isFirstSampleSet = true;
-  H_Sample = H;
-  E_Sample = E;
-  //console.log("Updated H and E:", H, E);
-  //console.log(points_circle);
-}
-
 function sendCirclePrintCommand(){
-  if(!isFirstSampleSet) {
-    return;
-  }
+	
+	let E = 0;
+	let thisSampleAverage = 0;
+
+	if(runningMicSampleCount !=0)
+		thisSampleAverage = (runningMicSampleTotal/runningMicSampleCount);
+		//note: (runningMicSampleTotal/runningMicSampleCount) is between 0 and 1	
+	
+	recentAverages.enqueue(thisSampleAverage);
+	
+	n_z += layerHeight/pointsPerCircle;
+	n_z = round(n_z,3);
 
 	let t_x = n_x, t_y = n_y;
 	
-  let v1 = createVector(n_x - bedCenterX, n_y - bedCenterY);
-  v1.normalize();
+	let currRad = currRotTrigConst*currentRotation;
+	let scaleRotHelper = map((recentAverages.average() - thisSampleAverage)/recentAverages.variance(), 1, -1, cos(currRad - (n_z/(layerHeight*layersPerOscilation))*pointsPerCircle*currRotTrigConst), 0, true);
+	//arbitartily defined method of determining varying the radius
 
-  n_x = points_circle[current_segment][0] + v1.x * (noise_range * map(average_audio, 0, 0.1, -1.0, 1.0, true));
-  n_y = points_circle[current_segment][1] + v1.y * (noise_range * map(average_audio, 0, 0.1, -1.0, 1.0, true));
-  
-  print(map(average_audio, 0, 0.1, -1.0, 1.0, true));
-  print(current_segment);
+	let xScale = map(scaleRotHelper, -1, 1, minRadiusScaleFactor, maxRadiusScaleFactor, true);
+	let yScale = map(scaleRotHelper, -1, 1, maxRadiusScaleFactor, minRadiusScaleFactor, true);
 
-  points_circle[current_segment][0] = n_x;
-  points_circle[current_segment][1] = n_y;
-
-	// n_x = bedCenterX + cos(currRotTrigConst*currentRotation) * circleRadius;
-	// n_y = bedCenterY + sin(currRotTrigConst*currentRotation) * circleRadius;
+	n_x = round(bedCenterX + cos(currRad) * circleRadius * xScale, 3);
+	n_y = round(bedCenterY + sin(currRad) * circleRadius * yScale, 3);
 	
 	let distance = dist(t_x, t_y, n_x, n_y);
 	
-	theta = map(average_audio, 0, 0.5, theta_Start, theta_End, true);
-	H = r_Constant * cos(radians(theta)) * 0.2 - layer1Z;//this constant converts E space into H space for our print error formula
-	E = r_Constant * sin(radians(theta)) * (nozzle_width / s_f) * distance;
+	if(runningMicSampleCount != 0)
+		E = round(distance * map(thisSampleAverage, 0, 1, minExtrusionPerMM, maxExtrusionPerMM), 3);
 	
-	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + ' E' + E + String.fromCharCode(13); // TODO: Get better extrusion values
+	runningMicSampleTotal = runningMicSampleCount = 0;
+	
+	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + ' E' + E + String.fromCharCode(13);
+
 	serial.write(currentLine);
 	print(currentLine);
 	
 	nextCommandTimemark = millis() + (distance/ConstFeedRate)*60000;
 	currentRotation++;
-	current_segment++;
+	
 	if(currentRotation >= pointsPerCircle){
 		currentRotation = 0;
-		current_segment = 0;
-		n_z += layerHeight;
-		
-		if(n_z >= modelHeight){
-		  //finished
-		  console.log("Model Finished");
-	  
-			shutOff();
-			return;
-			//end execution
-		}
+		//n_z += layerHeight;
 		
 		currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + String.fromCharCode(13);
 				
 		serial.write(currentLine);
 		
-		nextCommandTimemark = millis() + (layerHeight/ConstFeedRate)*60000 + 500;
+		nextCommandTimemark = millis() + (layerHeight/ConstFeedRate)*60000;
 		
 		waitingOnPosition = true;//make it so it synchronizes every circle whereas the pritner is sure not to get too far off.
+	}
+	
+	if(n_z >= modelHeight){
+	  //finished
+	  console.log("Model Finished");
+  
+		shutOff();
+		return;
+		//end execution
 	}
 }
 
@@ -566,21 +478,13 @@ function shutOff(){
 
 function mousePressed() {
     userStartAudio();
-    if(!isIntervalCallbackSet) {
-      intervalID = window.setInterval(setHE, sampling_Timeperiod);
-      isIntervalCallbackSet = true;
-    }
 }
 
-slider.oninput = function() {
-    scaling = this.value;
-    console.log(scaling);
-}
-
-function Queue() {
+function QueueCapped() {
   this.qList = [];
   this.head = -1;
   this.tail = -1;
+  this.capacity = 30;
   
   this.enqueue = function(item) {
     if (this.head == -1) {
@@ -588,6 +492,8 @@ function Queue() {
     }
     this.tail++;
     this.qList.push(item);
+	
+	if(this.capacity < this.qList.length) this.dequeue();
   };
   
   this.dequeue = function() {
@@ -619,4 +525,29 @@ function Queue() {
   this.list = function() {
     return this.qList;
   };
+  
+  this.average = function() {
+	if(this.size == 0) return 0;
+	
+	let result = 0;
+	for(let i =0; i < this.qList.length; i++){
+		result += this.qList[i];
+	}
+	
+	return result / this.qList.length;
+	
+  }
+  
+  this.variance = function() {
+	if(this.size == 0) return 0;
+	
+	let result = 0;
+	let average = this.average();
+	for(let i =0; i < this.qList.length; i++){
+		result += pow((this.qList[i] - average), 2);
+	}
+	
+	return result / this.qList.length;
+	
+  }
 }
