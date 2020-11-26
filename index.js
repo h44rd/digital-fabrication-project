@@ -1,5 +1,7 @@
 //mic input control
 var mic;
+
+//*mutatable by user
 var micMaxVolRemap=0.35;//normaly the mic charts volume from 0 to 1.0, but it rarely gets even close to that so we should give it more range by boosting
 
 //setup
@@ -8,11 +10,16 @@ var serial;
 var menuPos = -100;
 
 //model info
-var layer1Z = 1.2;//0.450;
+
+//*not sure
+var layer1Z = 1.0;
 var layerHeight = 0.85;
+
 var pointsPerCircle = 60;
 var circleRadius = 12.5;
-var modelHeight = 200;
+
+//*mutatable by user
+var modelHeight = 120;
 var bedCenterX = 110, bedCenterY = 110;
 
 //running display
@@ -42,15 +49,15 @@ var CLOSE_ENOUGH_POSITION = 2;//2 mm
 //Extrusion per mm by mic Implmentation
 var minExtrusionPerMM = 0.05;
 var maxExtrusionPerMM = 1.35;
-var runningMicSampleTotal=0.0;
-var runningMicSampleCount=0.0;
 
 var minRadiusScaleFactor=0.825;
 var maxRadiusScaleFactor=1.175;
 
+var runningMicSampleTotal=0.0;
+var runningMicSampleCount=0.0;
 var recentAverages;
 
-var layersPerOscilation = 8;
+var layersPerOscilation = 12;
 
 //todo, add scaling from the previous work
 
@@ -403,7 +410,7 @@ function sendCirclePrintCommand(){
 	recentAverages.enqueue(thisSampleAverage);
 	
 	n_z += layerHeight/pointsPerCircle;
-	n_z = round(n_z,5);
+	n_z = round(n_z,3);
 
 	let t_x = n_x, t_y = n_y;
 	
@@ -414,13 +421,13 @@ function sendCirclePrintCommand(){
 	let xScale = map(scaleRotHelper, -1, 1, minRadiusScaleFactor, maxRadiusScaleFactor, true);
 	let yScale = map(scaleRotHelper, -1, 1, maxRadiusScaleFactor, minRadiusScaleFactor, true);
 
-	n_x = round(bedCenterX + cos(currRad) * circleRadius * xScale, 5);
-	n_y = round(bedCenterY + sin(currRad) * circleRadius * yScale, 5);
+	n_x = round(bedCenterX + cos(currRad) * circleRadius * xScale, 3);
+	n_y = round(bedCenterY + sin(currRad) * circleRadius * yScale, 3);
 	
 	let distance = dist(t_x, t_y, n_x, n_y);
 	
 	if(runningMicSampleCount != 0)
-		E = round(distance * map(thisSampleAverage, 0, 1, minExtrusionPerMM, maxExtrusionPerMM), 5);
+		E = round(distance * map(thisSampleAverage, 0, 1, minExtrusionPerMM, maxExtrusionPerMM), 3);
 	
 	runningMicSampleTotal = runningMicSampleCount = 0;
 	
