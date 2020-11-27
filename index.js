@@ -47,8 +47,8 @@ var waitingOnPosition = false;//if true this program will regularly send 'M114' 
 var CLOSE_ENOUGH_POSITION = 2;//2 mm 
 
 //Extrusion per mm by mic Implmentation
-var minExtrusionPerMM = 0.05;
-var maxExtrusionPerMM = 1.35;
+var minExtrusionPerMM = 0.15;
+var maxExtrusionPerMM = 0.65;
 
 var minRadiusScaleFactor=0.825;
 var maxRadiusScaleFactor=1.175;
@@ -170,6 +170,13 @@ function gotData() {
 			waitingOnTemperature = false;
 			
 			//print("Preheated");
+			
+			//first pos
+			currentLine = 'G0 X' + n_x + ' Y' + n_y + ' Z' + n_z + ' F1000' + String.fromCharCode(13);
+			serial.write(currentLine);	
+			//feedrate
+			currentLine = 'G1 F' + ConstFeedRate + String.fromCharCode(13);
+			serial.write(currentLine);	
 		}
 	}
  }else if(waitingOnPosition){
@@ -328,12 +335,6 @@ function preheat(){
 	n_y = bedCenterY + sin(currRotTrigConst*currentRotation) * circleRadius;
 	n_z = layer1Z;
 	
-	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + ' F1000' + String.fromCharCode(13);
-	serial.write(currentLine);	
-	
-	currentLine = 'G1 F' + ConstFeedRate + String.fromCharCode(13);
-	serial.write(currentLine);	
-	
 	waitingOnTemperature = true;//tells the program to continously check temperature data
 	waitingOnPosition = true;//after the temperature is right it will check for location data...
 	
@@ -348,11 +349,11 @@ function beginCircle(){
 		sendingCommands = true;
 	}
 	
-    currentRotation = 0;
+    //currentRotation = 0;
 
 	sendCirclePrintCommand();
 	nextCommandTimemark = millis();
-	//sending a print command and then immediately allowing another makes it so the commands will be one ahead which eneables the head movement to be smooth
+	//sending a print command and then immediately allowing another makes it so the commands will be one ahead which enables the head movement to be smooth
 }
 
 function draw() {
@@ -415,9 +416,12 @@ function sendCirclePrintCommand(){
 	let t_x = n_x, t_y = n_y;
 	
 	let currRad = currRotTrigConst*currentRotation;
-	let scaleRotHelper = map((recentAverages.average() - thisSampleAverage)/recentAverages.variance(), 1, -1, cos(currRad - (n_z/(layerHeight*layersPerOscilation))*pointsPerCircle*currRotTrigConst), 0, true);
+	let variance = recentAverages.variance();
+	let temp1 = (variance!=0 ? (recentAverages.average() - thisSampleAverage)/recentAverages.variance() : 0);
+	let temp2 = cos(currRad - (n_z/(layerHeight*layersPerOscilation))*pointsPerCircle*currRotTrigConst);
+	let scaleRotHelper = (temp1 >= 0 ? 1 : -1)*map(abs(temp1), 0, 1, 0, temp2, true);
 	//arbitartily defined method of determining varying the radius
-
+	
 	let xScale = map(scaleRotHelper, -1, 1, minRadiusScaleFactor, maxRadiusScaleFactor, true);
 	let yScale = map(scaleRotHelper, -1, 1, maxRadiusScaleFactor, minRadiusScaleFactor, true);
 
@@ -427,27 +431,26 @@ function sendCirclePrintCommand(){
 	let distance = dist(t_x, t_y, n_x, n_y);
 	
 	if(runningMicSampleCount != 0)
-		E = round(distance * map(thisSampleAverage, 0, 1, minExtrusionPerMM, maxExtrusionPerMM), 3);
+		E = round(distance * map(thisSampleAverage, 0, 1, minExtrusionPerMM, maxExtrusionPerMM), 3);//less extrusion at low noise
+		//E = round(distance * map(thisSampleAverage, 1, 0, minExtrusionPerMM, maxExtrusionPerMM), 3);//less at high noise
 	
 	runningMicSampleTotal = runningMicSampleCount = 0;
 	
 	currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + ' E' + E + String.fromCharCode(13);
 
 	serial.write(currentLine);
-	print(currentLine);
+	//print(currentLine);
 	
 	nextCommandTimemark = millis() + (distance/ConstFeedRate)*60000;
 	currentRotation++;
 	
-	if(currentRotation >= pointsPerCircle){
-		currentRotation = 0;
+	if(currentRotation % ((pointsPerCircle*(5.0/3.0)) | 0) == 0){
+		//currentRotation = 0;
 		//n_z += layerHeight;
+		//currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + String.fromCharCode(13);
+		//serial.write(currentLine);
 		
-		currentLine = 'G1 X' + n_x + ' Y' + n_y + ' Z' + n_z + String.fromCharCode(13);
-				
-		serial.write(currentLine);
-		
-		nextCommandTimemark = millis() + (layerHeight/ConstFeedRate)*60000;
+		//nextCommandTimemark = millis() + (layerHeight/ConstFeedRate)*60000;
 		
 		waitingOnPosition = true;//make it so it synchronizes every circle whereas the pritner is sure not to get too far off.
 	}
@@ -547,7 +550,9 @@ function QueueCapped() {
 		result += pow((this.qList[i] - average), 2);
 	}
 	
-	return result / this.qList.length;
+	result = result / this.qList.length;
+	
+	return result <= 0.0005 ? 0 : result;
 	
   }
 }
