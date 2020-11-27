@@ -2,7 +2,7 @@
 var mic;
 
 //*mutatable by user
-var micMaxVolRemap=0.35;//normaly the mic charts volume from 0 to 1.0, but it rarely gets even close to that so we should give it more range by boosting
+var micMaxVolRemap=0.25;//normaly the mic charts volume from 0 to 1.0, but it rarely gets even close to that so we should give it more range by boosting
 
 //setup
 var headerDiv, menuDiv; 
@@ -50,8 +50,8 @@ var CLOSE_ENOUGH_POSITION = 2;//2 mm
 var minExtrusionPerMM = 0.15;
 var maxExtrusionPerMM = 0.65;
 
-var minRadiusScaleFactor=0.825;
-var maxRadiusScaleFactor=1.175;
+var minRadiusScaleFactor=0.975;
+var maxRadiusScaleFactor=1.025;
 
 var runningMicSampleTotal=0.0;
 var runningMicSampleCount=0.0;
@@ -419,19 +419,21 @@ function sendCirclePrintCommand(){
 	let variance = recentAverages.variance();
 	let temp1 = (variance!=0 ? (recentAverages.average() - thisSampleAverage)/recentAverages.variance() : 0);
 	let temp2 = cos(currRad - (n_z/(layerHeight*layersPerOscilation))*pointsPerCircle*currRotTrigConst);
-	let scaleRotHelper = (temp1 >= 0 ? 1 : -1)*map(abs(temp1), 0, 1, 0, temp2, true);
+	let scaleRotHelper = map(temp1, -1, 1, -temp2, temp2, true);
 	//arbitartily defined method of determining varying the radius
 	
-	let xScale = map(scaleRotHelper, -1, 1, minRadiusScaleFactor, maxRadiusScaleFactor, true);
-	let yScale = map(scaleRotHelper, -1, 1, maxRadiusScaleFactor, minRadiusScaleFactor, true);
+	//let xScale = map(scaleRotHelper, -1, 1, minRadiusScaleFactor, maxRadiusScaleFactor, true);
+	//let yScale = map(scaleRotHelper, -1, 1, maxRadiusScaleFactor, minRadiusScaleFactor, true);
+	let scale = map(scaleRotHelper, -1, 1, minRadiusScaleFactor, maxRadiusScaleFactor, true);
 
-	n_x = round(bedCenterX + cos(currRad) * circleRadius * xScale, 3);
-	n_y = round(bedCenterY + sin(currRad) * circleRadius * yScale, 3);
+	n_x = round(bedCenterX + cos(currRad) * circleRadius * scale, 3);
+	n_y = round(bedCenterY + sin(currRad) * circleRadius * scale, 3);
 	
 	let distance = dist(t_x, t_y, n_x, n_y);
 	
 	if(runningMicSampleCount != 0)
-		E = round(distance * map(thisSampleAverage, 0, 1, minExtrusionPerMM, maxExtrusionPerMM), 3);//less extrusion at low noise
+		E = round(distance * map(thisSampleAverage, 1, 0, minExtrusionPerMM, maxExtrusionPerMM), 3);//less at high noise
+		//E = round(distance * map(thisSampleAverage, 0, 1, minExtrusionPerMM, maxExtrusionPerMM), 3);//less extrusion at low noise
 		//E = round(distance * map(thisSampleAverage, 1, 0, minExtrusionPerMM, maxExtrusionPerMM), 3);//less at high noise
 	
 	runningMicSampleTotal = runningMicSampleCount = 0;
