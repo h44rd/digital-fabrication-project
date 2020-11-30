@@ -22,6 +22,9 @@ var circleRadius = 12.5;
 var modelHeight = 120;
 var bedCenterX = 110, bedCenterY = 110;
 
+// 0 : Low noise -> low extrusion, 1: Low noise -> high extrusion
+var default_low_noise_setting = 0;
+
 //running display
 var canvas;
 var canvasPos = 200;
@@ -29,6 +32,7 @@ var printerRunning = false;
 var sendingCommands = false;
 var currentLine = "foobar";
 var latestData = "waiting for data";
+var temp1_visualizer = 0.0, E_visualizer = 0.0;
 
 var waitingOnTemperature = false;
 
@@ -62,7 +66,7 @@ var layersPerOscilation = 12;
 //todo, add scaling from the previous work
 
 function setup() {
-
+  createCanvas(500, 500);
   // Create an Audio input
   mic = new p5.AudioIn();
 
@@ -212,23 +216,23 @@ function openPort() {
   menuDiv.style('text-align', 'left');
 
   //print opptions input
-  zHeightText = createElement('p', 'First Z:')
-  zHeightText.parent(menuDiv);
-  zHeightText.position(menuPos, 35);
+  // zHeightText = createElement('p', 'First Z:')
+  // zHeightText.parent(menuDiv);
+  // zHeightText.position(menuPos, 35);
 
-  zHeightInput = createInput(layer1Z);
-  zHeightInput.position(menuPos, 75);
-  zHeightInput.attribute('type', 'number');
-  zHeightInput.parent(menuDiv);
+  // zHeightInput = createInput(layer1Z);
+  // zHeightInput.position(menuPos, 75);
+  // zHeightInput.attribute('type', 'number');
+  // zHeightInput.parent(menuDiv);
   
-  layerHeightText = createElement('p', 'Layer height:')
-  layerHeightText.parent(menuDiv);
-  layerHeightText.position(menuPos, 90);
+  // layerHeightText = createElement('p', 'Layer height:')
+  // layerHeightText.parent(menuDiv);
+  // layerHeightText.position(menuPos, 90);
   
-  layerHeightInput = createInput(layerHeight);
-  layerHeightInput.position(menuPos, 125);
-  layerHeightInput.attribute('type', 'number');
-  layerHeightInput.parent(menuDiv);
+  // layerHeightInput = createInput(layerHeight);
+  // layerHeightInput.position(menuPos, 125);
+  // layerHeightInput.attribute('type', 'number');
+  // layerHeightInput.parent(menuDiv);
 
   pointCountText = createElement('p', 'Points per circle:')
   pointCountText.parent(menuDiv);
@@ -274,22 +278,38 @@ function openPort() {
   centerYInput.attribute('type', 'number');
   centerYInput.parent(menuDiv);
   
+  extrusionTypeText = createElement('p', 'Low audio noise Extrusion Type:');
+  extrusionTypeText.parent(menuDiv);
+  extrusionTypeText.position(menuPos, 360);
+  extrusionTypeText.size(500, 20);
+
+  extrusionTypeDropdown = createSelect();
+  option_temp = createElement('option', "High Extrusion");
+  option_temp.value = 1;
+  extrusionTypeDropdown.child(option_temp);
+  option_temp = createElement('option', "Low Extrusion");
+  option_temp.value = 0;
+  extrusionTypeDropdown.child(option_temp);
+  extrusionTypeDropdown.parent(menuDiv);
+  extrusionTypeDropdown.position(menuPos, 400);
+
   preheatButton = createButton('Preheat!');
   preheatButton.center();
-  preheatButton.position(menuPos, 375);
+  preheatButton.position(menuPos, 440);
   preheatButton.mousePressed(preheat);
   preheatButton.parent(menuDiv);
 }
 
 function preheat(){
 	
-	layer1Z = parseFloat(zHeightInput.value());
-	layerHeight = parseFloat(layerHeightInput.value());
+	// layer1Z = parseFloat(zHeightInput.value());
+	// layerHeight = parseFloat(layerHeightInput.value());
 	pointsPerCircle = parseFloat(pointCountInput.value());
 	circleRadius = parseFloat(radiusInput.value());
 	modelHeight = parseFloat(modelHeightInput.value());
 	bedCenterX = parseFloat(centerXInput.value());
-	bedCenterY = parseFloat(centerYInput.value());
+  bedCenterY = parseFloat(centerYInput.value());
+  extrusionTypeLowNoise = parseInt(extrusionTypeDropdown.value());
 	
     headerDiv.html('Your printer is running...');
 	
@@ -372,26 +392,27 @@ function draw() {
 	  rect(width/4, height, 25, -map(micVolFixed, 0, 1, 0, height));
 	  rect(width/2, height, 25, -map(runningMicSampleTotal/runningMicSampleCount, 0, 1, 0, height));
 	  rect(3*width/4, height, 25, -map(recentAverages.average(), 0, 1, 0, height));
-
-	  
-	  textSize(12);
-	  text(currentLine, 20, 60);
+    fill(210);
+    circle(width - 50, 100, map(E_visualizer, minExtrusionPerMM, maxExtrusionPerMM, 40, 60));
+	  text("E", width - 55, 105);
+	  // textSize(12);
+	  // text(currentLine, 20, 60);
 	  
 	  if(waitingOnTemperature){
-		if(nextCommandTimemark <= millis()){
-			currentLine = 'M105' + String.fromCharCode(13);
-			serial.write(currentLine);
-			nextCommandTimemark = millis() + 1000;
-			
-			runningMicSampleTotal = runningMicSampleCount = 0;
-		}
+      if(nextCommandTimemark <= millis()){
+        currentLine = 'M105' + String.fromCharCode(13);
+        serial.write(currentLine);
+        nextCommandTimemark = millis() + 1000;
+        
+        runningMicSampleTotal = runningMicSampleCount = 0;
+      }
 	  }
 	  if(waitingOnPosition){
-		if(nextCommandTimemark <= millis()){
-			currentLine = 'M114' + String.fromCharCode(13);
-			serial.write(currentLine);
-			nextCommandTimemark = millis();// + 100;
-		}
+      if(nextCommandTimemark <= millis()){
+        currentLine = 'M114' + String.fromCharCode(13);
+        serial.write(currentLine);
+        nextCommandTimemark = millis();// + 100;
+      }
 	  }
 	  else if(sendingCommands && nextCommandTimemark <= millis()){
 			sendCirclePrintCommand();
@@ -431,8 +452,17 @@ function sendCirclePrintCommand(){
 	
 	let distance = dist(t_x, t_y, n_x, n_y);
 	
-	if(runningMicSampleCount != 0)
-		E = round(distance * map(thisSampleAverage, 1, 0, minExtrusionPerMM, maxExtrusionPerMM), 3);//less at high noise
+  if(runningMicSampleCount != 0) {
+    if(extrusionTypeLowNoise == 0) {
+      E = round(distance * map(thisSampleAverage, 1, 0, minExtrusionPerMM, maxExtrusionPerMM), 3);//less extrusion at high noise, high extrusion at low noise
+      E_visualizer = map(thisSampleAverage, 1, 0, minExtrusionPerMM, maxExtrusionPerMM);
+    } else {
+      E = round(distance * map(thisSampleAverage, 0, 1, minExtrusionPerMM, maxExtrusionPerMM), 3);//high extrusion at high noise, low extrusion at low noise
+      E_visualizer = map(thisSampleAverage, 0, 1, minExtrusionPerMM, maxExtrusionPerMM);
+    }
+  }
+    // E = round(distance * map(thisSampleAverage, 1, 0, minExtrusionPerMM, maxExtrusionPerMM), 3);//less at high noise
+    // E_visualizer = E;
 		//E = round(distance * map(thisSampleAverage, 0, 1, minExtrusionPerMM, maxExtrusionPerMM), 3);//less extrusion at low noise
 		//E = round(distance * map(thisSampleAverage, 1, 0, minExtrusionPerMM, maxExtrusionPerMM), 3);//less at high noise
 	
