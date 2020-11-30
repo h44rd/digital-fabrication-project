@@ -110,13 +110,36 @@ This was a substitute for the method proposed by the paper.
 ![](./img/16.jpg)
 Here, we observe that the layers were printed based on the audio noise as the magnitude of the offset was based on the audio.
 
-### Progress till now
-![](./img/18.jpg)
+### Final Implementation
+
+Our final implementation satisfies the following requirements for the audio physicalization:
+* Printed output being does not need to be tracked in order to determine future header movements.
+* Print clearly recovers from disruption.
+* Changes in data are clearly visible in the model.
+
+The audio intensity controls the extrusion rate. It linearly interpolates between high and low extrusion based the audio.
+
+The procedural method for drawing the model is *slightly* changed from the original and it is based on the current sample's difference from the recent smaple's average.
+
+<!-- ![](./img/22.jpg) -->
+![](./img/23.jpg)
+Left two: no noise
+
+Right two: classic rock
+
+1st/3rd: high noise for high extrusion
+
+2nd/4th: low noise for high extrusion
+
+The option is given due to the fact that the sound input can be taken in different context. For instance, the desired output may differ for audio input in a library versus a concert.
+
+![](./img/24.jpg)
+![](./img/26.jpg)
 
 ### Current Interface
-![](./img/19.png)
-![](./img/21.png)
-![](./img/29.png)
+![](./img/30.png)
+![](./img/31.png)
+![](./img/32.png)
 
 ### Future ideas
 * To consider the previous point as well as the point below for noise calculation.
