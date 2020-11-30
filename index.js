@@ -66,7 +66,7 @@ var layersPerOscilation = 12;
 //todo, add scaling from the previous work
 
 function setup() {
-  createCanvas(500, 500);
+  // createCanvas(500, 500);
   // Create an Audio input
   mic = new p5.AudioIn();
 
